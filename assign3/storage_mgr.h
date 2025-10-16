@@ -6,12 +6,7 @@
 /************************************************************
  *                    handle data structures                *
  ************************************************************/
-typedef struct SM_FileHandle {
-	char *fileName;
-	int totalNumPages;
-	int curPagePos;
-	void *mgmtInfo;
-} SM_FileHandle;
+
 
 typedef char* SM_PageHandle;
 typedef struct link{
@@ -23,6 +18,12 @@ typedef struct head{
 	int length;
 } head;
 extern struct head *dir;
+typedef struct SM_FileHandle {
+	char *fileName;
+	int totalNumPages;
+	int curPagePos;
+	head *mgmtInfo;
+} SM_FileHandle;
 
 extern RC append(head*, link*);
 extern RC delete(head*, link*);

@@ -14,6 +14,7 @@ typedef struct RM_ScanHandle
 	void *mgmtData;
 } RM_ScanHandle;
 
+extern struct head* tableList;
 // table and manager
 extern RC initRecordManager (void *mgmtData);
 extern RC shutdownRecordManager ();

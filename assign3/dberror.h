@@ -4,8 +4,8 @@
 #include "stdio.h"
 
 /* module wide constants */
-#define PAGE_SIZE 32
-#define DIR_SIZE 2048
+#define PAGE_SIZE 4096
+
 /* return code definitions */
 typedef int RC;
 

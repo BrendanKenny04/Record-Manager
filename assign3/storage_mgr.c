@@ -47,7 +47,7 @@ void *lIndex(head* h, int pageNum){
 }
 
 void initStorageManager (void){
-    dir = calloc(1,DIR_SIZE);
+    dir = calloc(1,sizeof(head*));
     dir->first=NULL;
     dir->length=0;
 }
@@ -58,7 +58,7 @@ RC createPageFile (char *fileName){
     new->curPagePos=0;
     link *page = calloc(1,sizeof(link));
     page->data = calloc(1,PAGE_SIZE);
-    head *plist = calloc(1,DIR_SIZE);
+    head *plist = calloc(1,sizeof(head*));
     append(plist,page);
     new->mgmtInfo = plist;
     link *file = calloc(1,sizeof(link));
