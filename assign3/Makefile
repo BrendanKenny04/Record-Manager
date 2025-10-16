@@ -1,7 +1,12 @@
-test: storage_mgr.c dberror.c buffer_mgr.c test_assign2_1.c test_assign2_2.c buffer_mgr_stat.c
-	gcc test_assign2_1.c buffer_mgr.c storage_mgr.c dberror.c buffer_mgr_stat.c -o ./test1
-	gcc test_assign2_2.c buffer_mgr.c storage_mgr.c dberror.c buffer_mgr_stat.c -o ./test2
+pull:
+	git stash
+	git pull
 
-check: test1 test2
-	./test1
-	./test2
+push:
+	git add -A
+	git commit -m "generic push"
+	git push
+
+test:
+	gcc test_assign3_1.c test_expr.c record_mgr.c exrp.c rm_serializer.c buffer_mgr.c buffer_mgr_stat.c storage_mgr.c dberror.c
+	./a.out
