@@ -29,6 +29,7 @@ typedef struct RID {
 
 typedef struct Record
 {
+	bool deleted;
 	RID id;
 	char *data;
 } Record;
@@ -46,16 +47,15 @@ typedef struct Schema
 
 typedef struct tData
 {
-	int size;
-	int maxRecords;
-	RID latest;
-	bool *freeSpaces;
-	BM_BufferPool *bm;
+	int maxRecords; 	//number of records that can fit on one page
+	RID latest;			//last record in the table
+	bool *gaps;			//array with one entry for each page, tells if an entry has been deleted on that page.
+	BM_BufferPool *bm;	//buffer pool for the table
 } tData;
 // TableData: Management Structure for a Record Manager to handle one relation
 typedef struct RM_TableData
 {
-	char *name;
+	char *name;			
 	Schema *schema;
 	tData *mgmtData;
 } RM_TableData;
