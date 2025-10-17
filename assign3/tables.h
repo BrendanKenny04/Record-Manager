@@ -49,7 +49,7 @@ typedef struct tData
 {
 	int maxRecords; 	//number of records that can fit on one page
 	RID latest;			//last record in the table
-	bool *gaps;			//array with one entry for each page, tells if an entry has been deleted on that page.
+	int *gaps;			//array with one entry for each page, tells if an entry has been deleted on that page.
 	BM_BufferPool *bm;	//buffer pool for the table
 } tData;
 // TableData: Management Structure for a Record Manager to handle one relation
