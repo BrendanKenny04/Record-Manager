@@ -2,64 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include "record_mgr.h"
-#include "storage_mgr.c"
-#include "buffer_mgr.c"
-#include "expr.c"
-#include "dberror.c"
+#include "storage_mgr.h"
+#include "buffer_mgr.h"
+#include "expr.h"
+#include "dberror.h"
 
 head* tableList;
-
-void main(){ //Testing
-    initRecordManager(NULL);
-    char *names[] = {"Name","ID","Time"};
-    DataType types[] = {DT_STRING,DT_INT,DT_FLOAT};
-    int keys[] = {0};
-    int lens[] = {12,0,0};
-    Schema *s = createSchema(3,names,types,lens,1,keys);
-    createTable("Joes",s);
-    RM_TableData *rel = malloc(sizeof(RM_TableData));
-    openTable(rel,"Joes");
-    //Tests
-    
-    Record *r = malloc(sizeof(Record));
-    createRecord(&r,s);
-    Value *v1,*v2,*v3,*v4;
-    MAKE_STRING_VALUE(v1,"daniel");
-    MAKE_VALUE(v2,DT_INT,20);
-    MAKE_VALUE(v3,DT_FLOAT,14.5);
-    setAttr(r,s,0,v1);
-    setAttr(r,s,1,v2);
-    setAttr(r,s,2,v3);
-    freeVal(v1);
-    freeVal(v2);
-    freeVal(v3);
-    for(int i=0;i<5;i++){
-        insertRecord(rel,r);
-    }
-
-    Record *r2 = malloc(sizeof(Record));
-    createRecord(&r2,s);
-    getRecord(rel,r->id,r2);
-
-    for(int i=0;i<5;i++){
-        insertRecord(rel,r);
-    }
-    MAKE_STRING_VALUE(v1,"josephus");
-    setAttr(r,s,0,v1);
-    r->id.slot--;
-    updateRecord(rel,r);
-
-    getAttr(r,s,0,&v4);
-    printf("Name: %s\n",v4->v.stringV);
-
-    RID deletthis = {0,6};
-    deleteRecord(rel,deletthis);
-
-    insertRecord(rel,r);
-    closeTable(rel);
-    deleteTable("Joes");
-    shutdownRecordManager();
-/**/}
 
 // table and manager
 RC initRecordManager (void *mgmtData){
@@ -70,10 +18,10 @@ RC initRecordManager (void *mgmtData){
     td->data = mgmtData;
     tableList->first = td;
     tableList->length = 0;
+    return RC_OK;
 }
 RC shutdownRecordManager (){
-    free(tableList->first);
-    free(tableList);
+    return RC_OK;
 }
 RC createTable (char *name, Schema *schema){
     //Initialize the table's data structures
@@ -101,13 +49,11 @@ RC createTable (char *name, Schema *schema){
     initBufferPool(bm,name,5,RS_LRU,NULL);
     td->bm = bm;
 
-
     //Finally, put the table on the global table list
     link *tableEntry = malloc(sizeof(link*));
     tableEntry->next = NULL;
     tableEntry->data = newTable;
-    append(tableList,tableEntry);
-    return RC_OK;
+    return append(tableList,tableEntry);
 }
 RC openTable (RM_TableData *relo, char *name){
     link *t = tableList->first->next;
@@ -123,7 +69,7 @@ RC openTable (RM_TableData *relo, char *name){
     return RC_FILE_NOT_FOUND;
 }
 RC closeTable (RM_TableData *rel){
-    free(rel);
+    return RC_OK;
 }
 RC deleteTable (char *name){
     for (link *t = tableList->first->next;t;t=t->next){
@@ -132,7 +78,6 @@ RC deleteTable (char *name){
             destroyPageFile(rel->name);
             shutdownBufferPool(rel->mgmtData->bm);
             free(rel->mgmtData);
-            freeSchema(rel->schema);
             return delete(tableList,t);
         }
     }
@@ -155,7 +100,7 @@ int getNumTuples (RM_TableData *rel){
 }
 
 // handling records in a table
-RC insertRecord (RM_TableData *rel, Record *record){ //(deletion) unfinished!
+RC insertRecord (RM_TableData *rel, Record *record){
     record->deleted=FALSE;
     tData *td = rel->mgmtData;
     for(int i=0;i<=td->latest.page;i++){                                            //Before the end of the table
@@ -183,11 +128,11 @@ RC insertRecord (RM_TableData *rel, Record *record){ //(deletion) unfinished!
             return RC_RM_NO_MORE_TUPLES;    //somehow the gaps list was wrong!
         }
     }                                           //No empty spaces before last record
-    if(td->latest.slot>=(td->maxRecords-1)){     //Page would overflow on next insert
+    if(td->latest.slot>=(td->maxRecords-1)){     //If at end of current page,
         record->id=td->latest;                    //Set the record's slot to the next slot
-        td->latest.slot=0;                        //Update the next slot
+        td->latest.slot=0;                        //Reset slot to 0
         td->latest.page++;                        //And move to the next page
-    }else{                                       //Normal insert
+    }else{                                       //Otherwise
         record->id=td->latest;                    //Set the record's slot to the next slot
         td->latest.slot++;                        //Update the next slot
     }
@@ -244,9 +189,55 @@ RC getRecord (RM_TableData *rel, RID id, Record *record){
 }
 
 // scans
-RC startScan (RM_TableData *rel, RM_ScanHandle *scan, Expr *cond){}
-RC next (RM_ScanHandle *scan, Record *record){}
-RC closeScan (RM_ScanHandle *scan){}
+RC startScan (RM_TableData *rel, RM_ScanHandle *scan, Expr *cond){
+    scan->rel = rel;
+    scan->mgmtData = malloc(sizeof(sData));
+    scan->mgmtData->condition = cond;
+    scan->mgmtData->currentPos.page=0;
+    scan->mgmtData->currentPos.slot=0;
+    return RC_OK;
+}
+RC next (RM_ScanHandle *scan, Record *record){
+    sData *sd = scan->mgmtData;
+    tData *td = scan->rel->mgmtData;
+    int pnum = td->latest.page;                             //get positional information
+    int snum = td->latest.slot;                             //about the last entry in the table
+    int pcur = sd->currentPos.page;                         //get positional information
+    int scur = sd->currentPos.slot;                         //about where we are in the table
+    if(pcur>pnum || (scur>=snum&&pnum==pcur)){              //check if we are at the end of the table
+        return RC_RM_NO_MORE_TUPLES;                        //if so, signal that.
+    }
+    Record *r;                                              
+    createRecord(&r,scan->rel->schema);                     //make a record
+    getRecord(scan->rel,sd->currentPos,r);                  //get the record at the scan's current position
+    Value *v;
+    evalExpr(r,scan->rel->schema,sd->condition,&v);         //Get the result of the condition for the current record
+    freeRecord(r);                                          //as we recurse, this is necessary to not go into infinite memory debt
+    if (v->v.boolV){                                        //If the expression is true for the current record,
+        freeVal(v);
+        getRecord(scan->rel,sd->currentPos,record);          //return the current record and move to the next
+        if(sd->currentPos.slot>=(td->maxRecords-1)){         //If at end of current page,
+            sd->currentPos.slot=0;                            //Reset slot to 0
+            sd->currentPos.page++;                            //And move to the next page
+        }else{                                               //Otherwise
+            sd->currentPos.slot++;                            //Move to the next slot
+        }
+        return RC_OK;
+    }else{                                                  //If not
+        freeVal(v);
+        if(sd->currentPos.slot>=(td->maxRecords-1)){         //If at end of current page,
+            sd->currentPos.slot=0;                            //Reset slot to 0
+            sd->currentPos.page++;                            //And move to the next page
+        }else{                                               //Otherwise
+            sd->currentPos.slot++;                            //Move to the next slot
+        }
+        return next(scan,record);                                  //recurse, using the next record position
+    }
+}
+RC closeScan (RM_ScanHandle *scan){
+    free(scan->mgmtData);
+    return RC_OK;
+}
 
 // dealing with schemas
 int getRecordSize (Schema *schema){
@@ -282,6 +273,7 @@ Schema *createSchema (int numAttr, char **attrNames, DataType *dataTypes, int *t
 RC freeSchema (Schema *schema){
     //everything is statically allocated, only need to free the schema itself
     free(schema);
+    return RC_OK;
 }
 
 // dealing with records and attribute values
@@ -289,9 +281,14 @@ RC createRecord (Record **record, Schema *schema){
     Record *r = malloc(sizeof(Record));
     *record = r;
     r->data = malloc(getRecordSize(schema));
+    r->id.page=0;
+    r->id.slot=0;
+    return RC_OK;
 }
 RC freeRecord (Record *record){
-    free(record);//None of the record's metadata is dynamically allocated, so this is quite simple.
+    free(record->data);
+    free(record);
+    return RC_OK;
 }
 RC getAttr (Record *record, Schema *schema, int attrNum, Value **value){
     //Find the offset to the desired attribute
@@ -319,6 +316,7 @@ RC getAttr (Record *record, Schema *schema, int attrNum, Value **value){
             break;
         case DT_STRING:
             MAKE_STRING_VALUE(val,(record->data)+offset);
+            val->v.stringV[schema->typeLength[attrNum]]='\0';
             break;
         case DT_FLOAT:
             MAKE_VALUE(val,DT_FLOAT,*(float*)((record->data)+offset));

@@ -5,7 +5,6 @@
 #include "tables.h"
 #include "test_helper.h"
 
-
 #define ASSERT_EQUALS_RECORDS(_l,_r, schema, message)			\
 		do {									\
 			Record *_lR = _l;                                                   \

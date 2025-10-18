@@ -103,6 +103,7 @@ RC unpinPage (BM_BufferPool *const bm, BM_PageHandle *const page){
                 md->IO[1]--;
             }
             md->fixcount[i]--;
+            free(page);
             return err;
         }
     }

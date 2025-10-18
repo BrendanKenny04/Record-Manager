@@ -8,10 +8,15 @@
 #include "buffer_mgr.h"
 
 // Bookkeeping for scans
+typedef struct sData
+{
+	Expr *condition;
+	RID currentPos;
+} sData;
 typedef struct RM_ScanHandle
 {
 	RM_TableData *rel;
-	void *mgmtData;
+	sData *mgmtData;
 } RM_ScanHandle;
 
 extern struct head* tableList;

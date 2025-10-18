@@ -126,7 +126,7 @@ RC readBlock (int pageNum, SM_FileHandle *fHandle, SM_PageHandle memPage){
         if(i->next)i=i->next;
     }
     char* page = i->data;
-    strncpy(memPage,page,PAGE_SIZE);
+    memcpy(memPage,page,PAGE_SIZE);
     fHandle->curPagePos=pageNum;
     return RC_OK;
 }
@@ -158,7 +158,7 @@ RC writeBlock (int pageNum, SM_FileHandle *fHandle, SM_PageHandle memPage){
         if(i->next)i=i->next;
     }
     char* page = i->data;
-    strncpy(page,memPage,PAGE_SIZE);
+    memcpy(page,memPage,PAGE_SIZE);
     fHandle->curPagePos=pageNum;
     return RC_OK;
 }
