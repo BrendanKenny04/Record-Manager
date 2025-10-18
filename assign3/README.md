@@ -64,7 +64,7 @@ next will return the next record (in the scan's table) that follows the given sc
 
 ## Test Execution
 
-To successfully run this code, you will need to first clone this repository. There are no dependencies other than a functioning C compiler with a standard library, so everything is contained within the repository.
+To successfully run this code, you will need to first clone this repository (or download the ZIP file). There are no dependencies other than a functioning C compiler with a standard library, so everything is contained within the repository.
 
 ###
 
