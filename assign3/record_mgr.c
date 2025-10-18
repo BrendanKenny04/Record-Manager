@@ -21,46 +21,47 @@ RC initRecordManager (void *mgmtData){
     return RC_OK;
 }
 RC shutdownRecordManager (){
+    while(tableList->first){                //Empty the table list
+        delete(tableList,tableList->first);
+    }
+    while(dir->first){                      //Empty the directory
+        delete(dir,dir->first);
+    }
+    free(tableList);                        //free both lists
+    free(dir);
     return RC_OK;
 }
 RC createTable (char *name, Schema *schema){
-    //Initialize the table's data structures
-    RM_TableData *newTable = malloc(sizeof(RM_TableData));
-
-    newTable->name=name;
+    RM_TableData *newTable = malloc(sizeof(RM_TableData));  //Allocate space for the table
+    newTable->name=name;                                    //initialize its values
     newTable->schema=schema;
-    tData *td= malloc(sizeof(tData));
     RID lt = {0,0};
-    int *gaps = malloc(sizeof(int)*256); //arbitrary max amount of pages per table set to 256
-    for(int i=0;i<256;i++){
-        gaps[i]=0;
-    }
-    td->latest=lt;
+    tData *td = malloc(sizeof(tData));                      //Allocate space for the table's metadata
+    int *gaps = malloc(sizeof(int)*1024);   //couldnt find a way to dynamically track this easily, so i just set a hard cap at 1024 pages per table, should be enough :_(
+    for(int i=0;i<1024;i++){gaps[i]=0;}                     //initialize metadata
+    td->latest=lt;                                          
     td->gaps=gaps;
-    td->maxRecords = PAGE_SIZE/(sizeof(RID)+sizeof(bool)+getRecordSize(schema));
+    td->maxRecords = PAGE_SIZE/(sizeof(RID)+sizeof(bool)+getRecordSize(schema)); //Calculate the maximum amount of records per page.
     newTable->mgmtData=td;
     
-    //Create the page file and a buffer manager for the table, and put in the table's metadata
-    createPageFile(name);
-    SM_FileHandle* tableFile = malloc(sizeof(SM_FileHandle));
-    openPageFile(name,tableFile);
-    BM_BufferPool* bm = malloc(sizeof(BM_BufferPool));
-    BM_PageHandle* page = MAKE_PAGE_HANDLE();
-    initBufferPool(bm,name,5,RS_LRU,NULL);
-    td->bm = bm;
+    createPageFile(name);                                       //Create a page file to hold the table
+    SM_FileHandle* tableFile = malloc(sizeof(SM_FileHandle));   //Allocate
+    openPageFile(name,tableFile);                               //And open that file
+    BM_BufferPool* bm = malloc(sizeof(BM_BufferPool));          //Allocate
+    initBufferPool(bm,name,5,RS_LRU,NULL);                      //And initialize a buffer pool to manage that file
+    td->bm = bm;                                                //put that into the metadata
 
-    //Finally, put the table on the global table list
-    link *tableEntry = malloc(sizeof(link*));
-    tableEntry->next = NULL;
+    link *tableEntry = malloc(sizeof(link*));   //Allocate a link for the table
+    tableEntry->next = NULL;                    //initialize it
     tableEntry->data = newTable;
-    return append(tableList,tableEntry);
+    return append(tableList,tableEntry);        //Finally, put the table on the global table list
 }
 RC openTable (RM_TableData *relo, char *name){
-    link *t = tableList->first->next;
-    for (t;t;t=t->next){
-        RM_TableData *rel = t->data;
-        if (strcmp(rel->name,name)==0){
-            relo->name=rel->name;
+    link *t = tableList->first->next;       
+    for (t;t;t=t->next){                    //Search through the table list
+        RM_TableData *rel = t->data;        //get the table for that link
+        if (strcmp(rel->name,name)==0){     //if the names match
+            relo->name=rel->name;           //initialize the output relation with the stored one's values
             relo->mgmtData=rel->mgmtData;
             relo->schema=rel->schema;
             return RC_OK;
@@ -69,34 +70,32 @@ RC openTable (RM_TableData *relo, char *name){
     return RC_FILE_NOT_FOUND;
 }
 RC closeTable (RM_TableData *rel){
-    return RC_OK;
+    return RC_OK; //Every time i tried to free anything here i caused a malloc-related crash. That must mean there's nothing to free! (sarcasm)
 }
 RC deleteTable (char *name){
-    for (link *t = tableList->first->next;t;t=t->next){
-        RM_TableData *rel = t->data;
-        if (strcmp(rel->name,name)==0){
-            destroyPageFile(rel->name);
-            shutdownBufferPool(rel->mgmtData->bm);
-            free(rel->mgmtData);
-            return delete(tableList,t);
+    for (link *t = tableList->first->next;t;t=t->next){ //go through the table list
+        RM_TableData *rel = t->data;                    //get the table for that link
+        if (strcmp(rel->name,name)==0){                 //if the names match
+            destroyPageFile(rel->name);                 //delete the table's data
+            shutdownBufferPool(rel->mgmtData->bm);      //shutdown the buffer that managed that table
+            free(rel->mgmtData->gaps);
+            free(rel->mgmtData);                        //free associated metadata
+            return delete(tableList,t);                 //and remove the table from the list
         }
     }
     return RC_FILE_NOT_FOUND;
 }
 int getNumTuples (RM_TableData *rel){
     tData *td = rel->mgmtData;
-
-    //calculate the maximum amount based on the td->latest available RID slot
     int pnum = td->latest.page;
-    int snum = td->latest.slot-1; //must subtract one because the latest slot is not yet filled
-    int maxcount = pnum * td->maxRecords+snum;
+    int snum = td->latest.slot-1;               //must subtract one because the latest slot is not yet filled
+    int maxcount = (pnum*td->maxRecords)+snum;  //calculate the maximum amount based on number of pages and records per page info
 
-    //now that we have a theoretical max, find the number of deleted tuples, and subtract that off of the max
-    int deadcount=0;
+    int deadcount=0;                            //now that we have a theoretical max
     for (int i=0;i<256;i++){
-        deadcount+=td->gaps[i];
+        deadcount+=td->gaps[i];                 //find the number of deleted tuples
     }
-    return maxcount-deadcount;
+    return maxcount-deadcount;                  //subtract that off of the max
 }
 
 // handling records in a table
@@ -151,46 +150,46 @@ RC insertRecord (RM_TableData *rel, Record *record){
     return RC_OK;
 }
 RC deleteRecord (RM_TableData *rel, RID id){
-    int size = getRecordSize(rel->schema);
-    int fullsize = size+sizeof(RID)+sizeof(bool);
-    BM_PageHandle *ph = MAKE_PAGE_HANDLE();
-    pinPage(rel->mgmtData->bm,ph,id.page);
-    int offset = id.slot*fullsize;
-    bool d = TRUE;
-    memcpy((ph->data)+offset+fullsize-sizeof(bool),&d,sizeof(bool));
-    markDirty(rel->mgmtData->bm,ph);
-    unpinPage(rel->mgmtData->bm,ph);
-    rel->mgmtData->gaps[id.page]++;
-    return RC_OK;
+    int size = getRecordSize(rel->schema);                          //repeat block
+    int fullsize = size+sizeof(RID)+sizeof(bool);                   
+    BM_PageHandle *ph = MAKE_PAGE_HANDLE();                         
+    pinPage(rel->mgmtData->bm,ph,id.page);                          
+    int offset = id.slot*fullsize;                                  
+    bool d = TRUE;                                                  //get a boolean holding true
+    memcpy((ph->data)+offset+fullsize-sizeof(bool),&d,sizeof(bool));//copy in that memory to the record's deleted flag
+    markDirty(rel->mgmtData->bm,ph);                                
+    unpinPage(rel->mgmtData->bm,ph);                                //writeback
+    rel->mgmtData->gaps[id.page]++;                                 //add 1 to the number of gaps on this page
+    return RC_OK;                       
 }
 RC updateRecord (RM_TableData *rel, Record *record){
-    int size = getRecordSize(rel->schema);
+    int size = getRecordSize(rel->schema);  //repeat block
     int fullsize = size+sizeof(RID)+sizeof(bool);
     BM_PageHandle *ph = MAKE_PAGE_HANDLE();
     pinPage(rel->mgmtData->bm,ph,record->id.page);
     int offset = record->id.slot*fullsize;
-    memcpy((ph->data)+offset,record->data,size);
-    markDirty(rel->mgmtData->bm,ph);
-    unpinPage(rel->mgmtData->bm,ph);
+    memcpy((ph->data)+offset,record->data,size);    //Metadata remains the same, as it takes up the same slot and has not been deleted.
+    markDirty(rel->mgmtData->bm,ph);                //Simply copy in the new data from the provided record
+    unpinPage(rel->mgmtData->bm,ph);    //write back
     return RC_OK;
 }
 RC getRecord (RM_TableData *rel, RID id, Record *record){
-    int size = getRecordSize(rel->schema);
+    int size = getRecordSize(rel->schema);  //repeat block
     int fullsize = size+sizeof(RID)+sizeof(bool);
     BM_PageHandle *ph = MAKE_PAGE_HANDLE();
     pinPage(rel->mgmtData->bm,ph,id.page);
     int offset = id.slot*fullsize;
-    memcpy(record->data,(ph->data)+offset,size);
-    memcpy(&record->id,(ph->data)+offset+size,sizeof(RID));
-    memcpy(&record->deleted,(ph->data)+offset+size+sizeof(RID),sizeof(bool));
-    markDirty(rel->mgmtData->bm,ph);
-    unpinPage(rel->mgmtData->bm,ph);
+    memcpy(record->data,(ph->data)+offset,size);                                //Copy data from the table into the provided
+    memcpy(&record->id,(ph->data)+offset+size,sizeof(RID));                     //^^^
+    memcpy(&record->deleted,(ph->data)+offset+size+sizeof(RID),sizeof(bool));   //^^^
+    markDirty(rel->mgmtData->bm,ph);    //force writeback
+    unpinPage(rel->mgmtData->bm,ph);    //unpin
     return RC_OK;
 }
 
 // scans
 RC startScan (RM_TableData *rel, RM_ScanHandle *scan, Expr *cond){
-    scan->rel = rel;
+    scan->rel = rel;                          //simply initialize the scan's table and other metadata
     scan->mgmtData = malloc(sizeof(sData));
     scan->mgmtData->condition = cond;
     scan->mgmtData->currentPos.page=0;
@@ -231,37 +230,37 @@ RC next (RM_ScanHandle *scan, Record *record){
         }else{                                               //Otherwise
             sd->currentPos.slot++;                            //Move to the next slot
         }
-        return next(scan,record);                                  //recurse, using the next record position
+        return next(scan,record);                            //recurse, using the next record position
     }
 }
 RC closeScan (RM_ScanHandle *scan){
-    free(scan->mgmtData);
+    free(scan->mgmtData);   //The only dynamically allocated part of the scan is the metadata container struct
     return RC_OK;
 }
 
 // dealing with schemas
 int getRecordSize (Schema *schema){
-    int recordSize = 0;
-    for (int i=0;i<schema->numAttr;i++){
-        switch (schema->dataTypes[i]){
-            case DT_INT: //Integer
-                recordSize+=sizeof(int);
+    int recordSize = 0;                             //Calculate the record's size
+    for (int i=0;i<schema->numAttr;i++){            //for each attribute
+        switch (schema->dataTypes[i]){              //check its type
+            case DT_INT:                            //Integer
+                recordSize+=sizeof(int);            //add size of int
                 break;
-            case DT_STRING: //String
-                recordSize+=schema->typeLength[i];
+            case DT_STRING:                         //String
+                recordSize+=schema->typeLength[i];  //add size defined in typeLength
                 break;
-            case DT_FLOAT: //Float
-                recordSize+=sizeof(float);
+            case DT_FLOAT:                          //Float
+                recordSize+=sizeof(float);          //add size of float
                 break;
-            case DT_BOOL: //Boolean
-                recordSize+=sizeof(bool);
+            case DT_BOOL:                           //Boolean
+                recordSize+=sizeof(bool);           //add size of bool
                 break;
         }
     }
     return recordSize;
 }
 Schema *createSchema (int numAttr, char **attrNames, DataType *dataTypes, int *typeLength, int keySize, int *keys){
-    Schema *s = malloc(sizeof(Schema)); //Simply allocate and then fill out the schema
+    Schema *s = malloc(sizeof(Schema));     //Simply allocate and then fill out the schema
     s->attrNames=attrNames;
     s->dataTypes=dataTypes;
     s->keyAttrs=keys;
@@ -271,97 +270,95 @@ Schema *createSchema (int numAttr, char **attrNames, DataType *dataTypes, int *t
     return s;
 }
 RC freeSchema (Schema *schema){
-    //everything is statically allocated, only need to free the schema itself
-    free(schema);
-    return RC_OK;
+    free(schema);   //all metadata is statically allocated, only need to free the schema itself
+    return RC_OK;   
 }
 
 // dealing with records and attribute values
 RC createRecord (Record **record, Schema *schema){
-    Record *r = malloc(sizeof(Record));
-    *record = r;
-    r->data = malloc(getRecordSize(schema));
-    r->id.page=0;
+    Record *r = malloc(sizeof(Record));         //allocate space for the record
+    r->data = malloc(getRecordSize(schema));    //allocate space for the record's data
+    r->id.page=0;                               //initialize the record's position
     r->id.slot=0;
+    *record = r;                                //effectively return the created record
     return RC_OK;
 }
 RC freeRecord (Record *record){
-    free(record->data);
-    free(record);
+    free(record->data);     //free the record's allocated data slot
+    free(record);           //free the record's reference
     return RC_OK;
 }
 RC getAttr (Record *record, Schema *schema, int attrNum, Value **value){
-    //Find the offset to the desired attribute
-    size_t offset = 0;
-    for (int i=0;i<attrNum;i++){
-        switch (schema->dataTypes[i]){
-            case DT_INT: //Integer
-                offset+=sizeof(int);
+    size_t offset = 0;                                      
+    for (int i=0;i<attrNum;i++){                            //Calculate the offset into the record's data
+        switch (schema->dataTypes[i]){                      //check the datatypes, in order
+            case DT_INT:                                    //if int,
+                offset+=sizeof(int);                         //add that to the offset
                 break;
-            case DT_STRING: //String
-                offset+=schema->typeLength[i];
+            case DT_STRING:                                 //if string
+                offset+=schema->typeLength[i];               //check the defined size of the string and add that
                 break;
-            case DT_FLOAT: //Float
-                offset+=sizeof(float);
+            case DT_FLOAT: //Float                          //if float
+                offset+=sizeof(float);                       //add that to the offset
                 break;
-            case DT_BOOL: //Boolean
-                offset+=sizeof(bool);
+            case DT_BOOL: //Boolean                         //if bool
+                offset+=sizeof(bool);                        //add that to the offset
                 break;
         }
     }
     Value *val;
-    switch (schema->dataTypes[attrNum]){
-        case DT_INT:
-            MAKE_VALUE(val,DT_INT,*(int*)((record->data)+offset));
+    switch (schema->dataTypes[attrNum]){                                //Depending on data type, use different make_value
+        case DT_INT:                                                    //for ints
+            MAKE_VALUE(val,DT_INT,*(int*)((record->data)+offset));      //DT_INT and int*
             break;
-        case DT_STRING:
-            MAKE_STRING_VALUE(val,(record->data)+offset);
-            val->v.stringV[schema->typeLength[attrNum]]='\0';
+        case DT_STRING:                                                 //for strings
+            MAKE_STRING_VALUE(val,(record->data)+offset);               //different function entirely
+            val->v.stringV[schema->typeLength[attrNum]]='\0';           //MUST make sure to cut off string after the defined size!
+            break;                                                          //Otherwise, might contain the next attribute by default
+        case DT_FLOAT:                                                  //for floats
+            MAKE_VALUE(val,DT_FLOAT,*(float*)((record->data)+offset));  //DT_FLOAT and float*
             break;
-        case DT_FLOAT:
-            MAKE_VALUE(val,DT_FLOAT,*(float*)((record->data)+offset));
-            break;
-        case DT_BOOL:
-            MAKE_VALUE(val,DT_BOOL,*(bool*)((record->data)+offset));
+        case DT_BOOL:                                                   //for bools
+            MAKE_VALUE(val,DT_BOOL,*(bool*)((record->data)+offset));    //DT_BOOL and bool*
             break;
     }
-    *value = val;
+    *value = val;       //effectively return the retrieved value
     return RC_OK;
 }
 RC setAttr (Record *record, Schema *schema, int attrNum, Value *value){
-    DataType dt = schema->dataTypes[attrNum];
-    if (dt!=value->dt)return RC_RM_COMPARE_VALUE_OF_DIFFERENT_DATATYPE;
+    DataType dt = schema->dataTypes[attrNum];               //Get the datatype of the attribute to be set
+    if (dt!=value->dt)                                      //Check for discrepancies
+        return RC_RM_COMPARE_VALUE_OF_DIFFERENT_DATATYPE;
     
-    size_t offset = 0;
-    for (int i=0;i<attrNum;i++){
-        switch (schema->dataTypes[i]){
-            case DT_INT: //Integer
-                offset+=sizeof(int);
+    size_t offset = 0;                                      
+    for (int i=0;i<attrNum;i++){                            //Calculate the offset into the record's data
+        switch (schema->dataTypes[i]){                      //check the datatypes, in order
+            case DT_INT:                                    //if int,
+                offset+=sizeof(int);                         //add that to the offset
                 break;
-            case DT_STRING: //String
-                offset+=schema->typeLength[i];
+            case DT_STRING:                                 //if string
+                offset+=schema->typeLength[i];               //check the defined size of the string and add that
                 break;
-            case DT_FLOAT: //Float
-                offset+=sizeof(float);
+            case DT_FLOAT: //Float                          //if float
+                offset+=sizeof(float);                       //add that to the offset
                 break;
-            case DT_BOOL: //Boolean
-                offset+=sizeof(bool);
+            case DT_BOOL: //Boolean                         //if bool
+                offset+=sizeof(bool);                        //add that to the offset
                 break;
         }
     }
-    //get the value and convert it into binary, then put it in the right slot
-    switch (value->dt){
-        case DT_INT:
-            memcpy((record->data)+offset,&(value->v.intV),sizeof(int));
+    switch (value->dt){                                                                 //Depending on datatype, need different attribute of v
+        case DT_INT:                                                                    //For ints,
+            memcpy((record->data)+offset,&(value->v.intV),sizeof(int));                  //copy in v.intV
             break;
-        case DT_STRING:
-            memcpy((record->data)+offset,(value->v.stringV),schema->typeLength[attrNum]);
+        case DT_STRING:                                                                 //For strings
+            memcpy((record->data)+offset,(value->v.stringV),schema->typeLength[attrNum]);//copy in v.stringV
             break;
-        case DT_FLOAT:
-            memcpy((record->data)+offset,&(value->v.floatV),sizeof(float));
+        case DT_FLOAT:                                                                  //For floats
+            memcpy((record->data)+offset,&(value->v.floatV),sizeof(float));              //copy in v.floatV
             break;
-        case DT_BOOL:
-            memcpy((record->data)+offset,&(value->v.boolV),sizeof(bool));
+        case DT_BOOL:                                                                   //For bools
+            memcpy((record->data)+offset,&(value->v.boolV),sizeof(bool));                //copy in v.boolV
             break;
     } return RC_OK;
 }
